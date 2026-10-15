@@ -1,0 +1,12 @@
+[Unit]
+Description=Family newsletter agent (local LLM + web search)
+After=network-online.target ollama.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=__USER__
+WorkingDirectory=__DIR__
+ExecStart=__DIR__/.venv/bin/python __DIR__/newsletter_agent.py
+TimeoutStartSec=4h
+Nice=5
