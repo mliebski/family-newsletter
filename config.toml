@@ -1,0 +1,54 @@
+# Family Newsletter - configuration
+# Edit topics freely: add, remove or reorder [[topics]] blocks.
+
+[newsletter]
+title = "The Family Daily"
+subtitle = "News, tech and the outdoors, researched by our home AI"
+location = "Newmarket, Ontario, Canada"     # used for local stories
+region = "ca-en"                            # DuckDuckGo region
+language = "English"
+reading_level = "Clear and friendly; readable for teenagers and adults; no jargon"
+
+[ollama]
+url = "http://localhost:11434"
+model ="gpt-oss:20b" 			#"qwen3:30b-a3b" Anfuhrungszeichen sind wichtig im Modelnamen       # fast MoE model; try "gpt-oss:20b" or "qwen3.8:27b-q4_K_M"
+num_ctx = 16384
+temperature = 0.4
+think = true                  # false is default - thinking makes CPU runs much slower; true for higher quality
+timeout_seconds = 2000         # per model call; CPU inference can be slow - 1200 as default
+
+[research]
+max_tool_calls = 10            # per topic
+min_pages_read = 2             # below this, seed queries are run directly as a fallback
+search_results = 6
+timelimit = "d"                # d = day, w = week, m = month
+max_page_chars = 5000          # text per page given to the model
+block_private_addresses = true # never fetch pages on the home network
+
+[output]
+site_dir = "site"              # served by nginx (see docker-compose.yml)
+
+[[topics]]
+name = "Family News"
+brief = """The most important news of the day for a family in Newmarket and York Region, \
+plus Ontario and Canada, and one or two major world stories. Family-friendly: no graphic detail, \
+explain context simply."""
+seed_queries = ["Newmarket Ontario news", "York Region news this week", "Canada news this week"]
+search_mode = "news"
+items = 4
+
+[[topics]]
+name = "Tech & AI"
+brief = """Notable developments in AI, local/open-source LLMs, consumer tech and gadgets this week. \
+Explain why each matters in plain language; avoid hype."""
+seed_queries = ["AI news this week", "open source LLM release", "new gadgets announced this week"]
+search_mode = "news"
+items = 4
+
+[[topics]]
+name = "Outdoors & Sport"
+brief = """Trail running, gravel cycling, hiking, climbing and camping: Ontario trail and park news, \
+upcoming races and events in southern Ontario, seasonal tips, and notable results in endurance sport."""
+seed_queries = ["Ontario trail running race", "Ontario parks news", "gravel cycling news"]
+search_mode = "web"
+items = 3

@@ -1,0 +1,9 @@
+services:
+  newsletter-web:
+    image: nginx:alpine
+    container_name: newsletter-web
+    restart: unless-stopped
+    ports:
+      - "8088:80"
+    volumes:
+      - ./site:/usr/share/nginx/html:ro
