@@ -5,7 +5,7 @@ For each topic in config.toml:
   1. RESEARCH - the local LLM (via Ollama) calls web_search / read_webpage tools.
   2. FALLBACK - if the model gathered too little, the seed queries are run directly.
   3. WRITE    - the model turns the gathered sources into structured JSON stories.
-  4. VERIFY   - every story's source URL must be one the agent actually saw.
+  4. VERIFY   - every story's source URL must be a page the agent actually read.
 Then an editor's note is written and everything is rendered to static HTML.
 
 The model never writes HTML: it only returns JSON, which is escaped and rendered by
@@ -94,6 +94,11 @@ def norm(url):
     return url.strip().rstrip("/").lower()
 
 
+def text(value):
+    """Model JSON fields can be null or the wrong type; coerce to a clean string."""
+    return value.strip() if isinstance(value, str) else ""
+
+
 # ---------------------------------------------------------------- Ollama client
 class Ollama:
     def __init__(self, cfg):
@@ -179,9 +184,9 @@ class TopicResearcher:
             f"You are the research assistant for a family newsletter. Today is {self.today:%A, %B %d, %Y}. "
             f"The family lives in {self.nl.get('location', 'Canada')}. "
             "Your knowledge is out of date, so rely only on what you find with the tools.\n"
-            "Process: call web_search 3-6 times with focused queries, then call read_webpage on the "
+            "Process: call web_search 2-4 times with focused queries, then call read_webpage on the "
             f"3-5 most relevant, recent and reputable results. Stay within {self.max_calls} tool calls. "
-            "Prefer stories from the past 1-2 days. When you have enough material, reply with the single "
+            "Prefer stories from the past 7 days. When you have enough material, reply with the single "
             "word DONE."
         )
         user = (f"Topic: {topic['name']}\nBrief: {topic['brief']}\n"
@@ -245,17 +250,12 @@ class TopicResearcher:
 
     # writing ---------------------------------------------------------------
     def write(self, topic):
-        notes, n = [], 0
-        for entry in self.pages_read():
-            n += 1
-            notes.append(f"[Source {n}] {entry['title']}\nURL: {entry['url']}\n{entry['text']}")
-        read_urls = {norm(e["url"]) for e in self.pages_read()}
-        for entry in self.seen.values():
-            if norm(entry["url"]) not in read_urls and entry["snippet"]:
-                n += 1
-                notes.append(f"[Source {n}, snippet only] {entry['title']}\nURL: {entry['url']}\n{entry['snippet']}")
+        # Only pages actually read count as sources; search snippets are too thin to write from.
+        notes = [f"[Source {n}] {e['title']}\nURL: {e['url']}\n{e['text']}"
+                 for n, e in enumerate(self.pages_read(), 1)]
         if not notes:
             return []
+        read = {k: v for k, v in self.seen.items() if v["text"]}  # includes redirect aliases
 
         items = topic.get("items", 4)
         system = (
@@ -270,23 +270,31 @@ class TopicResearcher:
         )
         messages = [{"role": "system", "content": system},
                     {"role": "user", "content": "SOURCES:\n\n" + "\n\n---\n\n".join(notes)}]
-        data = self.llm.chat_json(messages, STORIES_SCHEMA) or {}
+        data = self.llm.chat_json(messages, STORIES_SCHEMA)
+        raw = data.get("stories") if isinstance(data, dict) else None
 
-        # VERIFY: keep only stories whose source the agent really saw
+        # VERIFY: keep only stories whose source page the agent really read
         stories, used = [], set()
-        for s in data.get("stories", []):
-            key = norm(s.get("source_url", ""))
-            if key not in self.seen:
-                log(f"  dropped story with unverified source: {s.get('source_url')}")
+        for s in raw if isinstance(raw, list) else []:
+            if not isinstance(s, dict):
                 continue
-            if key in used:
+            url = text(s.get("source_url"))
+            key = norm(url)
+            if key not in read:
+                log(f"  dropped story whose source was not read: {url}")
                 continue
-            used.add(key)
-            src = self.seen[key]
+            src = read[key]
+            if id(src) in used:  # same page, possibly cited by its pre-redirect URL
+                continue
+            headline, summary = text(s.get("headline")), text(s.get("summary"))
+            if not headline or not summary:
+                log(f"  dropped incomplete story: {url}")
+                continue
+            used.add(id(src))
             stories.append({
-                "headline": s.get("headline", "").strip(),
-                "summary": s.get("summary", "").strip(),
-                "why_it_matters": s.get("why_it_matters", "").strip(),
+                "headline": headline,
+                "summary": summary,
+                "why_it_matters": text(s.get("why_it_matters")),
                 "source_url": src["url"],
                 "source_title": src["title"],
             })
@@ -299,14 +307,14 @@ def write_intro(llm, nl_cfg, sections, today):
         return ""
     messages = [
         {"role": "system", "content": (
-            f"You are the editor of '{nl_cfg['title']}', a daily family newsletter. "
+            f"You are the editor of '{nl_cfg['title']}', a weekly family newsletter. "
             f"Write a warm, 2-3 sentence editor's note for the issue of {today:%B %d, %Y} that "
             "previews the highlights below. No greeting like 'Dear family', no sign-off, no emojis. "
             f"Write in {nl_cfg.get('language', 'English')}.")},
         {"role": "user", "content": headlines},
     ]
-    data = llm.chat_json(messages, INTRO_SCHEMA) or {}
-    return data.get("intro", "").strip()
+    data = llm.chat_json(messages, INTRO_SCHEMA)
+    return text(data.get("intro")) if isinstance(data, dict) else ""
 
 
 # ---------------------------------------------------------------- main
@@ -349,13 +357,20 @@ def main():
         except requests.RequestException as e:
             log(f"  Ollama/network error, skipping topic: {e}")
             stories = []
+        except Exception as e:  # one bad topic must not sink the whole issue
+            log(f"  error, skipping topic: {type(e).__name__}: {e}")
+            stories = []
         log(f"  {len(stories)} stories in {time.time() - t0:.0f}s")
         sections.append({"name": topic["name"], "stories": stories})
 
     if not any(s["stories"] for s in sections):
         sys.exit("No stories were produced; not publishing an empty issue.")
 
-    intro = write_intro(llm, nl, sections, today)
+    try:
+        intro = write_intro(llm, nl, sections, today)
+    except Exception as e:  # the stories are done; publish without a note
+        log(f"Editor's note failed, publishing without it: {type(e).__name__}: {e}")
+        intro = ""
     site = Path(out.get("site_dir", "site"))
     if not site.is_absolute():
         site = HERE / site

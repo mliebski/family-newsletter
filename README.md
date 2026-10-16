@@ -9,7 +9,7 @@ config.toml ──► newsletter_agent.py
                   │   1 RESEARCH  model calls web_search / read_webpage (Ollama tool calling)
                   │   2 FALLBACK  too little gathered? run seed queries directly
                   │   3 WRITE     model returns stories as JSON (Ollama structured output)
-                  │   4 VERIFY    drop any story whose source URL the agent never saw
+                  │   4 VERIFY    drop any story whose source page the agent never read
                   │  editor's note ─► render.py (escapes everything; model never writes HTML)
                   ▼
 site/index.html · site/latest.html · site/issues/YYYY-MM-DD.{html,json}
@@ -56,6 +56,7 @@ Re-running on the same day overwrites that day's issue.
 ## Safety notes
 
 - Pages on the home network are never fetched (`block_private_addresses = true`).
-- Story links can only point to pages the agent actually saw during research.
+- Story links can only point to pages the agent actually read during research
+  (a search snippet alone is never enough).
 - All model text is HTML-escaped; nginx serves the folder read-only.
 - Port 8088 is meant for the LAN only; don't forward it on the router.

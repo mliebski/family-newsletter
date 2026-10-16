@@ -4,6 +4,7 @@ Same logic as the Open WebUI "Web Search & Reader" tool, in a plain synchronous 
 """
 
 import ipaddress
+import re
 import socket
 from urllib.parse import urljoin, urlparse
 
@@ -98,9 +99,32 @@ class WebTools:
             content_type = resp.headers.get("Content-Type", "").lower()
             raw = resp.raw.read(5_000_000, decode_content=True)
             resp.close()
-            encoding = resp.encoding or "utf-8"
-            return current, content_type, raw.decode(encoding, errors="replace")
+            return current, content_type, self._decode(raw, content_type)
         raise ValueError("too many redirects")
+
+    @staticmethod
+    def _decode(raw, content_type):
+        """Decode bytes using the declared charset (header, then <meta>), else UTF-8.
+
+        requests assumes ISO-8859-1 for text/* without a charset, which garbles
+        UTF-8 pages (accents, curly quotes), so its guess is not used.
+        """
+        declared = []
+        m = re.search(r"charset=[\"']?([\w.:-]+)", content_type)
+        if m:
+            declared.append(m.group(1))
+        m = re.search(rb"<meta[^>]+charset=[\"']?([\w.:-]+)", raw[:4096], re.I)
+        if m:
+            declared.append(m.group(1).decode("ascii"))
+        for enc in declared:
+            try:
+                return raw.decode(enc, errors="replace")
+            except LookupError:  # unknown charset name
+                continue
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return raw.decode("cp1252", errors="replace")
 
     def _check_url(self, url):
         parsed = urlparse(url)
@@ -116,7 +140,8 @@ class WebTools:
             raise ValueError(f"cannot resolve {parsed.hostname}")
         for info in infos:
             ip = ipaddress.ip_address(info[4][0])
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            # not is_global also covers CGNAT / Tailscale (100.64.0.0/10), which is_private misses
+            if not ip.is_global or ip.is_multicast:
                 raise ValueError(f"{parsed.hostname} is a private/local address; blocked")
 
     @staticmethod
