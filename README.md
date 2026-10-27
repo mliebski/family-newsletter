@@ -10,7 +10,8 @@ config.toml ──► newsletter_agent.py
                   │   2 FALLBACK  too little gathered? run seed queries directly
                   │   3 WRITE     model returns stories as JSON (Ollama structured output)
                   │   4 VERIFY    drop any story whose source page the agent never read
-                  │  editor's note ─► render.py (escapes everything; model never writes HTML)
+                  │  editor's note + 6-day weather (Open-Meteo, weather.py)
+                  │  ─► render.py (escapes everything; model never writes HTML)
                   ▼
 site/index.html · site/latest.html · site/issues/YYYY-MM-DD.{html,json}
                   ▼
@@ -52,6 +53,14 @@ Re-running on the same day overwrites that day's issue.
 - **Search rate-limited**: DuckDuckGo occasionally throttles; the run continues and topics
   without material are shown as "No verified stories this week". If it becomes frequent,
   switch `webtools.py` to a self-hosted SearXNG.
+
+## Weather
+
+Each issue shows today plus the next 5 days (high/low, conditions, chance of precipitation),
+fetched from [Open-Meteo](https://open-meteo.com) (free, no API key) right before publishing.
+The numbers come straight from the forecast, never from the model. Set the location or turn it
+off in the `[weather]` section of `config.toml`; if the forecast can't be fetched, the issue
+is published without it.
 
 ## Safety notes
 

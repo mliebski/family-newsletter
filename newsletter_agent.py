@@ -28,6 +28,7 @@ from pathlib import Path
 import requests
 
 from render import render_issue, render_index
+from weather import fetch_forecast
 from webtools import WebTools
 
 HERE = Path(__file__).resolve().parent
@@ -377,8 +378,20 @@ def main():
     issues_dir = site / "issues"
     issues_dir.mkdir(parents=True, exist_ok=True)
 
+    weather = None
+    wcfg = cfg.get("weather", {})
+    if wcfg.get("enabled", False):
+        try:
+            days = fetch_forecast(wcfg["latitude"], wcfg["longitude"],
+                                  wcfg.get("timezone", "auto"), wcfg.get("days", 6))
+            town = nl.get("location", "").split(",")[0].strip()  # "Newmarket, Ontario, ..." -> "Newmarket"
+            weather = {"location": town, "days": days} if days else None
+            log(f"Weather: {len(days)} day forecast")
+        except Exception as e:  # the forecast is a bonus; never block the issue
+            log(f"Weather unavailable, publishing without it: {type(e).__name__}: {e}")
+
     issue = {"date": today.isoformat(), "title": nl["title"], "subtitle": nl.get("subtitle", ""),
-             "intro": intro, "model": llm.model, "sections": sections}
+             "intro": intro, "weather": weather, "model": llm.model, "sections": sections}
     (issues_dir / f"{today}.json").write_text(json.dumps(issue, indent=2, ensure_ascii=False), "utf-8")
     html = render_issue(issue)
     (issues_dir / f"{today}.html").write_text(html, "utf-8")

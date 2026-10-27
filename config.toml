@@ -25,6 +25,13 @@ timelimit = "w"                # d = day, w = week, m = month
 max_page_chars = 5000          # text per page given to the model
 block_private_addresses = true # never fetch pages on the home network
 
+[weather]
+enabled = true                 # forecast strip under the editor's note (Open-Meteo, no key needed)
+latitude = 44.0592             # Newmarket, Ontario
+longitude = -79.4613
+timezone = "America/Toronto"
+days = 6                       # today + the next 5 days
+
 [output]
 site_dir = "site"              # served by nginx (see docker-compose.yml)
 
